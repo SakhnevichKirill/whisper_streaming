@@ -1,10 +1,12 @@
 from transformers import pipeline
+import torch
 
 # Copyright 2023 The HuggingFace Team. All rights reserved.
 import datetime
 import platform
 import subprocess
 from typing import Optional, Tuple, Union
+from multiprocessing import Process
 
 import numpy as np
 import requests
@@ -15,13 +17,33 @@ OUTPUT_FILE_NAME = "out.wav"    # file name.
 SAMPLE_RATE = 48000              # [Hz]. sampling rate.
 RECORD_SEC = 5                  # [sec]. duration recording audio.
 
-
-def speaker_live():
+def speaker_record_stream():
     while True:
         with sc.get_microphone(id=str(sc.default_speaker().name), include_loopback=True).recorder(samplerate=SAMPLE_RATE) as mic:
             # record audio with loopback from default speaker.
             data = mic.record(numframes=SAMPLE_RATE*RECORD_SEC)
-            yield data
+            sf.write(file=OUTPUT_FILE_NAME, data=data[:, 0], samplerate=SAMPLE_RATE)
+            response = requests.post("http://localhost:8000/transcribe", json={"device": "speaker", "audio_data": data[:, 0].tolist()})
+            output_array = response.json()["text"]
+            print("speaker")
+            print(output_array)
+
+def microphone_record_stream():
+    while True:
+        with sc.get_microphone(id=str(sc.default_microphone().name), include_loopback=True).recorder(samplerate=SAMPLE_RATE) as mic:
+            # record audio with loopback from default speaker.
+            data = mic.record(numframes=SAMPLE_RATE*RECORD_SEC)
+            sf.write(file=OUTPUT_FILE_NAME, data=data[:, 0], samplerate=SAMPLE_RATE)
+            response = requests.post("http://localhost:8000/transcribe", json={"device": "microphone", "audio_data": data[:, 0].tolist()})
+            output_array = response.json()["text"]
+            print("microphone")
+            print(output_array)
+
+def sc_transcribe():
+    speaker = Process(target=speaker_record_stream)
+    microphone = Process(target=microphone_record_stream)
+    speaker.start()
+    microphone.start()
 
 def ffmpeg_microphone(
     sampling_rate: int,
@@ -38,8 +60,7 @@ def ffmpeg_microphone(
     elif format_for_conversion == "f32le":
         size_of_sample = 4
     else:
-        raise ValueError(
-            f"Unhandled format `{format_for_conversion}`. Please use `s16le` or `f32le`")
+        raise ValueError(f"Unhandled format `{format_for_conversion}`. Please use `s16le` or `f32le`")
 
     system = platform.system()
     if system == "Linux":
@@ -58,13 +79,13 @@ def ffmpeg_microphone(
         "ffmpeg",
         "-f",
         format_,
-        "-i",
+        "-i", 
         input_1,
-        "-f",
+        "-f", 
         format_,
-        "-i",
+        "-i", 
         input_2,
-        "-filter_complex",
+        "-filter_complex", 
         "amix=inputs=2",
         "-ac",
         ac,
@@ -128,8 +149,7 @@ def ffmpeg_microphone_live(
     else:
         chunk_s = chunk_length_s
 
-    microphone = ffmpeg_microphone(
-        sampling_rate, chunk_s, format_for_conversion=format_for_conversion)
+    microphone = ffmpeg_microphone(sampling_rate, chunk_s, format_for_conversion=format_for_conversion)
     if format_for_conversion == "s16le":
         dtype = np.int16
         size_of_sample = 2
@@ -137,8 +157,7 @@ def ffmpeg_microphone_live(
         dtype = np.float32
         size_of_sample = 4
     else:
-        raise ValueError(
-            f"Unhandled format `{format_for_conversion}`. Please use `s16le` or `f32le`")
+        raise ValueError(f"Unhandled format `{format_for_conversion}`. Please use `s16le` or `f32le`")
 
     if stride_length_s is None:
         stride_length_s = chunk_length_s / 6
@@ -146,10 +165,8 @@ def ffmpeg_microphone_live(
     if isinstance(stride_length_s, (int, float)):
         stride_length_s = [stride_length_s, stride_length_s]
 
-    stride_left = int(
-        round(sampling_rate * stride_length_s[0])) * size_of_sample
-    stride_right = int(
-        round(sampling_rate * stride_length_s[1])) * size_of_sample
+    stride_left = int(round(sampling_rate * stride_length_s[0])) * size_of_sample
+    stride_right = int(round(sampling_rate * stride_length_s[1])) * size_of_sample
     audio_time = datetime.datetime.now()
     delta = datetime.timedelta(seconds=chunk_s)
     for item in chunk_bytes_iter(microphone, chunk_len, stride=(stride_left, stride_right), stream=True):
@@ -193,7 +210,7 @@ def chunk_bytes_iter(iterator, chunk_len: int, stride: Tuple[int, int], stream: 
                     item["partial"] = False
                 yield item
                 _stride_left = stride_left
-                acc = acc[chunk_len - stride_left - stride_right:]
+                acc = acc[chunk_len - stride_left - stride_right :]
     # Last chunk
     if len(acc) > stride_left:
         item = {"raw": acc, "stride": (_stride_left, 0)}
@@ -215,22 +232,18 @@ def _ffmpeg_stream(ffmpeg_command, buflen: int):
                     break
                 yield raw
     except FileNotFoundError as error:
-        raise ValueError(
-            "ffmpeg was not found but is required to stream audio files from filename") from error
+        raise ValueError("ffmpeg was not found but is required to stream audio files from filename") from error
 
 
 def _get_microphone_name():
     """
     Retrieve the microphone name in Windows .
     """
-    command = ["ffmpeg", "-list_devices", "true", "-f", "dshow", "-i", "dummy"]
+    command = ["ffmpeg", "-list_devices", "true", "-f", "dshow", "-i", ""]
 
     try:
-        ffmpeg_devices = subprocess.run(
-            command, text=True, stderr=subprocess.PIPE, encoding="utf-8")
-        print("Results ", ffmpeg_devices.stderr.splitlines())
-        microphone_lines = [
-            line for line in ffmpeg_devices.stderr.splitlines() if "(audio)" in line]
+        ffmpeg_devices = subprocess.run(command, text=True, stderr=subprocess.PIPE, encoding="utf-8")
+        microphone_lines = [line for line in ffmpeg_devices.stderr.splitlines() if "(audio)" in line]
 
         if microphone_lines:
             microphone_name_1 = microphone_lines[0].split('"')[1]
@@ -243,7 +256,6 @@ def _get_microphone_name():
 
     return "default"
 
-
 def transcribe(chunk_length_s=15.0, stream_chunk_s=1.0):
     mic = ffmpeg_microphone_live(
         sampling_rate=16000,
@@ -253,7 +265,6 @@ def transcribe(chunk_length_s=15.0, stream_chunk_s=1.0):
 
     print("Start speaking...")
     for item in mic:
-        response = requests.post(
-            "http://localhost:8000/transcribe", json={"audio_data": item["raw"].tolist()})
+        response = requests.post("http://localhost:8000/transcribe", json={"audio_data": item["raw"].tolist()})
         output_array = response.json()["text"]
         print(output_array)

@@ -1,15 +1,19 @@
 import socket
 import time
+import numpy as np
+import soundcard as sc
+import soundfile as sf
+import wave
+from faster_whisper import WhisperModel
 
-from audio_utils import ffmpeg_microphone_live
+from audio_utils import speaker_live
+
+model_size = "tiny"
+model = WhisperModel(model_size, device="cpu")
 
 
-def transcribe(chunk_length_s=15.0, stream_chunk_s=1.0, host='localhost', port=43007):
-    mic = ffmpeg_microphone_live(
-        sampling_rate=16000,
-        chunk_length_s=chunk_length_s,
-        stream_chunk_s=stream_chunk_s,
-    )
+def run_client(chunk_length_s=15.0, stream_chunk_s=1.0, host='localhost', port=43007):
+    mic = speaker_live()
 
     print("Start speaking...")
 
@@ -17,9 +21,9 @@ def transcribe(chunk_length_s=15.0, stream_chunk_s=1.0, host='localhost', port=4
         s.connect((host, port))
         s.settimeout(5)  # Set a timeout for the socket operations
         for item in mic:
-            raw_audio = item["raw"]
+            # raw_audio = item["raw"]
             print("Sending audio chunk to server...")
-            s.sendall(raw_audio.tobytes())
+            s.sendall(item.tobytes())
             try:
                 response = b""
                 while True:
@@ -33,6 +37,33 @@ def transcribe(chunk_length_s=15.0, stream_chunk_s=1.0, host='localhost', port=4
                 print("No response from server, possibly a timeout or server issue.")
                 continue
 
+def transcribe(audio_data):
+    segments, _ = model.transcribe(audio_data)
+    text = []
+    for segment in segments:
+        text.append(segment.text)
+    return " ".join(text)
+
 
 # Example usage
-transcribe()
+OUTPUT_FILE_NAME = "out.wav"    # file name.
+SAMPLE_RATE = 48000              # [Hz]. sampling rate.
+RECORD_SEC = 5                  # [sec]. duration recording audio.
+CHUNK = 8 * RECORD_SEC * SAMPLE_RATE
+
+sock = socket.socket()
+sock.connect(('localhost', 43007))
+
+while True:
+    with sc.get_microphone(id=str(sc.default_speaker().name), include_loopback=True).recorder(samplerate=SAMPLE_RATE) as mic:
+        # record audio with loopback from default speaker.
+        data = mic.record(numframes=SAMPLE_RATE*RECORD_SEC)
+        sf.write(file=OUTPUT_FILE_NAME, data=data[:, 0], samplerate=SAMPLE_RATE)
+    wf = wave.open("out.wav")
+    data = wf.readframes(CHUNK)
+    sock.send(data)
+
+    data = sock.recv(1024)
+    print(data.decode())
+
+sock.close()
