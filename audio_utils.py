@@ -10,6 +10,7 @@ import numpy as np
 import requests
 import soundcard as sc
 import soundfile as sf
+from vad import Vad
 
 OUTPUT_FILE_NAME = "out.wav"    # file name.
 SAMPLE_RATE = 48000              # [Hz]. sampling rate.
@@ -257,3 +258,15 @@ def transcribe(chunk_length_s=15.0, stream_chunk_s=1.0):
             "http://localhost:8000/transcribe", json={"audio_data": item["raw"].tolist()})
         output_array = response.json()["text"]
         print(output_array)
+
+vad = Vad()
+
+def process_audio(audio_data: np.ndarray):
+        is_speech = vad.is_speech(audio_data)
+        if is_speech:
+            response = requests.post(
+                "http://localhost:8000/transcribe", 
+                json={"audio_data": audio_data.tolist()}
+            )
+            output_array = response.json()["text"]
+            print(output_array)

@@ -1,5 +1,5 @@
 from transformers import pipeline
-import torch
+import secrets
 
 # Copyright 2023 The HuggingFace Team. All rights reserved.
 import datetime
@@ -22,8 +22,11 @@ def speaker_record_stream():
         with sc.get_microphone(id=str(sc.default_speaker().name), include_loopback=True).recorder(samplerate=SAMPLE_RATE) as mic:
             # record audio with loopback from default speaker.
             data = mic.record(numframes=SAMPLE_RATE*RECORD_SEC)
-            sf.write(file=OUTPUT_FILE_NAME, data=data[:, 0], samplerate=SAMPLE_RATE)
-            response = requests.post("http://localhost:8000/transcribe", json={"device": "speaker", "audio_data": data[:, 0].tolist()})
+            fname = secrets.token_hex(16)+".wav"
+            sf.write(fname,data,SAMPLE_RATE)
+            # sf.write(file=OUTPUT_FILE_NAME, data=data[:, 0], samplerate=SAMPLE_RATE)
+            # response = requests.post("http://localhost:8000/transcribe", json={"device": "speaker", "audio_data": data[:, 0].tolist()})
+            response = requests.post("http://localhost:8000/transcribe", files={'out_speaker.wav': open(fname, "rb")})
             output_array = response.json()["text"]
             print("speaker")
             print(output_array)
@@ -33,8 +36,11 @@ def microphone_record_stream():
         with sc.get_microphone(id=str(sc.default_microphone().name), include_loopback=True).recorder(samplerate=SAMPLE_RATE) as mic:
             # record audio with loopback from default speaker.
             data = mic.record(numframes=SAMPLE_RATE*RECORD_SEC)
-            sf.write(file=OUTPUT_FILE_NAME, data=data[:, 0], samplerate=SAMPLE_RATE)
-            response = requests.post("http://localhost:8000/transcribe", json={"device": "microphone", "audio_data": data[:, 0].tolist()})
+            fname = secrets.token_hex(16)+".wav"
+            sf.write(fname,data,SAMPLE_RATE)
+            # sf.write(file=OUTPUT_FILE_NAME, data=data[:, 0], samplerate=SAMPLE_RATE)
+            # response = requests.post("http://localhost:8000/transcribe", json={"device": "microphone", "audio_data": data[:, 0].tolist()})
+            response = requests.post("http://localhost:8000/transcribe", files={'out_micro.wav': open(fname, "rb")})
             output_array = response.json()["text"]
             print("microphone")
             print(output_array)

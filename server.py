@@ -47,12 +47,18 @@ with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
     logger.info('Listening on'+str((args.host, args.port)))
     conn, addr = s.accept()
     while True:
-        data = conn.recv(8 * SAMPLE_RATE * RECORD_SEC)
-        if not data:
-            break
-        audio_data = np.frombuffer(data, dtype=np.float64)
+        # data = conn.recv(8 * SAMPLE_RATE * RECORD_SEC)
+        # if not data:
+        #     break
+        # audio_data = np.frombuffer(data, dtype=np.float64)
+
+        audio_data = conn.recv(1024)
+        while (len(audio_data) < 8 * SAMPLE_RATE * RECORD_SEC):
+            audio_data += conn.recv(1024)
+
         text = transcribe(audio_data)
         print(text)
-        conn.send(text.encode())
+        # conn.send(text.encode())
         logger.info('Connection to client closed')
     conn.close()
+print('broken')
